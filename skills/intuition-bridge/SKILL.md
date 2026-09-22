@@ -15,20 +15,25 @@ probabilities. Run the local CLI; it calls Jev and posts the beat to INTUITION.
 
 ## Prerequisites
 
-1. INTUITION dev server: `cd ~/chyworkspace/jev-intuition && npm run dev` (default http://127.0.0.1:5173)
+1. INTUITION dev server from the repo root: `npm run dev` (default http://127.0.0.1:5173)
 2. `TYPESAFE_API_KEY` in the environment
 3. User has the dashboard open in a browser
 
 ## Command
 
+Resolve the repo root (directory that contains `scripts/jev-decide.mjs`), then:
+
 ```bash
-node /home/chenyibw2026/chyworkspace/jev-intuition/scripts/jev-decide.mjs \
+node scripts/jev-decide.mjs \
   --kind route|compact|gate \
   --intent "short user-facing intent" \
   --state "the state Jev should see" \
   [--acted "what you will do next"] \
   [--title "optional session title"]
 ```
+
+If the skill is symlinked from a clone, prefer an absolute path to that clone’s
+`scripts/jev-decide.mjs` so the command works from any cwd.
 
 Stdout is JSON: `summary`, `answer`, `intuition` (`posted` | `not_posted`).
 
