@@ -1,3 +1,4 @@
+import type { DaySummary } from "../store/useSession";
 import type { IntuitionBeat, Session } from "../types/intuition";
 import { Controls } from "./Controls";
 import { ContextInstrument } from "./instruments/ContextInstrument";
@@ -8,6 +9,8 @@ import { Timeline } from "./Timeline";
 type Props = {
   source: "demo" | "live";
   session: Session;
+  sessionDate: string | null;
+  days: DaySummary[];
   beat: IntuitionBeat | undefined;
   selectedIndex: number;
   playing: boolean;
@@ -20,6 +23,7 @@ type Props = {
   onRejudge: () => void;
   onUseDemo: () => void;
   onClearLive: () => void;
+  onLoadDay: (date: string) => void;
 };
 
 function latestOfKind(
@@ -36,6 +40,8 @@ function latestOfKind(
 export function Panel({
   source,
   session,
+  sessionDate,
+  days,
   beat,
   selectedIndex,
   playing,
@@ -48,6 +54,7 @@ export function Panel({
   onRejudge,
   onUseDemo,
   onClearLive,
+  onLoadDay,
 }: Props) {
   const routeBeat = latestOfKind(session.beats, selectedIndex, "route");
   const compactBeat = latestOfKind(session.beats, selectedIndex, "compact");
@@ -58,7 +65,10 @@ export function Panel({
       <header className="panel__brand">
         <p className="panel__mark">INTUITION</p>
         <p className="panel__tag">
-          System One · {source === "live" ? "Claude live" : "demo replay"}
+          System One ·{" "}
+          {source === "live"
+            ? `Claude live${sessionDate ? ` · ${sessionDate}` : ""}`
+            : "demo replay"}
         </p>
       </header>
 
@@ -102,11 +112,14 @@ export function Panel({
             rejudging={rejudging}
             error={error}
             beatCount={session.beats.length}
+            sessionDate={sessionDate}
+            days={days}
             onReplay={onReplay}
             onStop={onStop}
             onRejudge={onRejudge}
             onUseDemo={onUseDemo}
             onClearLive={onClearLive}
+            onLoadDay={onLoadDay}
           />
           {beat ? (
             <p className="panel__acted" key={`acted-${beat.id}`}>

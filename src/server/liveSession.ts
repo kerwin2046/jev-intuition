@@ -1,23 +1,122 @@
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 import type { IntuitionBeat, Session } from "../types/intuition.ts";
 
 type SseClient = ServerResponse;
 
+type Persisted = {
+  date: string;
+  startedAt: number;
+  session: Session;
+};
+
 export type LiveStore = {
   session: Session;
   startedAt: number;
+  date: string;
   clients: Set<SseClient>;
+  dataDir: string;
 };
 
-export function createLiveStore(): LiveStore {
+function todayKey(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function emptySession(title = "Claude · waiting for beats"): Session {
   return {
-    session: {
-      id: "live-claude",
-      title: "Claude · waiting for beats",
-      beats: [],
-    },
-    startedAt: Date.now(),
+    id: `live-${todayKey()}`,
+    title,
+    beats: [],
+  };
+}
+
+function sessionPath(dataDir: string, date: string): string {
+  return join(dataDir, `${date}.json`);
+}
+
+function loadPersisted(dataDir: string, date: string): Persisted | null {
+  const path = sessionPath(dataDir, date);
+  if (!existsSync(path)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Persisted;
+    if (!raw?.session?.beats || !Array.isArray(raw.session.beats)) return null;
+    return {
+      date: raw.date || date,
+      startedAt: raw.startedAt || Date.now(),
+      session: raw.session,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function savePersisted(store: LiveStore) {
+  mkdirSync(store.dataDir, { recursive: true });
+  const payload: Persisted = {
+    date: store.date,
+    startedAt: store.startedAt,
+    session: store.session,
+  };
+  writeFileSync(
+    sessionPath(store.dataDir, store.date),
+    JSON.stringify(payload, null, 2) + "\n",
+    "utf8",
+  );
+}
+
+function listSessions(dataDir: string): Array<{
+  date: string;
+  title: string;
+  beatCount: number;
+}> {
+  if (!existsSync(dataDir)) return [];
+  return readdirSync(dataDir)
+    .filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f))
+    .map((f) => {
+      const date = f.replace(/\.json$/, "");
+      const p = loadPersisted(dataDir, date);
+      return {
+        date,
+        title: p?.session.title ?? date,
+        beatCount: p?.session.beats.length ?? 0,
+      };
+    })
+    .filter((s) => s.beatCount > 0)
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+function ensureToday(store: LiveStore) {
+  const today = todayKey();
+  if (store.date === today) return;
+  savePersisted(store);
+  const loaded = loadPersisted(store.dataDir, today);
+  if (loaded) {
+    store.date = loaded.date;
+    store.startedAt = loaded.startedAt;
+    store.session = loaded.session;
+  } else {
+    store.date = today;
+    store.startedAt = Date.now();
+    store.session = emptySession();
+  }
+}
+
+export function createLiveStore(
+  dataDir = join(process.cwd(), "data", "sessions"),
+): LiveStore {
+  mkdirSync(dataDir, { recursive: true });
+  const date = todayKey();
+  const loaded = loadPersisted(dataDir, date);
+  return {
+    dataDir,
+    date,
+    startedAt: loaded?.startedAt ?? Date.now(),
+    session: loaded?.session ?? emptySession(),
     clients: new Set(),
   };
 }
@@ -70,6 +169,26 @@ function normalizeBeat(
   };
 }
 
+function switchToDate(store: LiveStore, date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  if (store.date === date) return true;
+  savePersisted(store);
+  const loaded = loadPersisted(store.dataDir, date);
+  if (!loaded) {
+    if (date === todayKey()) {
+      store.date = date;
+      store.startedAt = Date.now();
+      store.session = emptySession();
+      return true;
+    }
+    return false;
+  }
+  store.date = loaded.date;
+  store.startedAt = loaded.startedAt;
+  store.session = loaded.session;
+  return true;
+}
+
 export function intuitionApiPlugin(store: LiveStore): Plugin {
   return {
     name: "intuition-api",
@@ -77,7 +196,9 @@ export function intuitionApiPlugin(store: LiveStore): Plugin {
       const handler: Connect.NextHandleFunction = async (req, res, next) => {
         if (!req.url) return next();
 
-        const url = req.url.split("?")[0] ?? req.url;
+        const full = req.url;
+        const url = full.split("?")[0] ?? full;
+        const params = new URL(full, "http://localhost").searchParams;
 
         if (req.method === "OPTIONS" && url.startsWith("/api/")) {
           res.statusCode = 204;
@@ -93,32 +214,52 @@ export function intuitionApiPlugin(store: LiveStore): Plugin {
             live: Boolean(process.env.TYPESAFE_API_KEY),
             beats: store.session.beats.length,
             title: store.session.title,
+            date: store.date,
+          });
+          return;
+        }
+
+        if (url === "/api/sessions" && req.method === "GET") {
+          sendJson(res, 200, {
+            current: store.date,
+            sessions: listSessions(store.dataDir),
           });
           return;
         }
 
         if (url === "/api/session" && req.method === "GET") {
-          sendJson(res, 200, { session: store.session });
+          const date = params.get("date");
+          if (date) {
+            if (!switchToDate(store, date)) {
+              sendJson(res, 404, { error: `No session for ${date}` });
+              return;
+            }
+            broadcast(store, "session", store.session);
+          }
+          sendJson(res, 200, {
+            session: store.session,
+            date: store.date,
+          });
           return;
         }
 
         if (url === "/api/session/reset" && req.method === "POST") {
-          store.session = {
-            id: "live-claude",
-            title: "Claude · waiting for beats",
-            beats: [],
-          };
+          ensureToday(store);
+          store.session = emptySession();
           store.startedAt = Date.now();
+          store.date = todayKey();
+          savePersisted(store);
           broadcast(store, "session", store.session);
-          sendJson(res, 200, { session: store.session });
+          sendJson(res, 200, { session: store.session, date: store.date });
           return;
         }
 
         if (url === "/api/beats" && req.method === "POST") {
           try {
-            const raw = JSON.parse(await readBody(req)) as Partial<IntuitionBeat> & {
-              title?: string;
-            };
+            ensureToday(store);
+            const raw = JSON.parse(
+              await readBody(req),
+            ) as Partial<IntuitionBeat> & { title?: string };
             if (raw.title) {
               store.session = {
                 ...store.session,
@@ -142,9 +283,14 @@ export function intuitionApiPlugin(store: LiveStore): Plugin {
                 title: "Claude · live session",
               };
             }
+            savePersisted(store);
             broadcast(store, "beat", beat);
             broadcast(store, "session", store.session);
-            sendJson(res, 200, { beat, session: store.session });
+            sendJson(res, 200, {
+              beat,
+              session: store.session,
+              date: store.date,
+            });
           } catch (err) {
             sendJson(res, 400, {
               error: err instanceof Error ? err.message : "Invalid JSON",

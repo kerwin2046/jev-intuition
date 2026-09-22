@@ -6,11 +6,33 @@ const baseSession = demoSession as Session;
 
 export type SourceMode = "demo" | "live";
 
+export type DaySummary = {
+  date: string;
+  title: string;
+  beatCount: number;
+};
+
+function applyLiveSession(
+  next: Session,
+  setSource: (s: SourceMode) => void,
+  setSession: (s: Session) => void,
+  setSelectedIndex: (i: number) => void,
+  followLive: boolean,
+) {
+  if (next.beats.length === 0) return false;
+  setSource("live");
+  setSession(next);
+  setSelectedIndex(followLive ? next.beats.length - 1 : 0);
+  return true;
+}
+
 export function useSession() {
   const [source, setSource] = useState<SourceMode>("demo");
   const [session, setSession] = useState<Session>(() =>
     structuredClone(baseSession),
   );
+  const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [days, setDays] = useState<DaySummary[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [liveAvailable, setLiveAvailable] = useState(false);
@@ -21,6 +43,20 @@ export function useSession() {
 
   const beat: IntuitionBeat | undefined = session.beats[selectedIndex];
 
+  const refreshDays = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sessions");
+      const data = (await res.json()) as {
+        current?: string;
+        sessions?: DaySummary[];
+      };
+      setDays(data.sessions ?? []);
+      if (data.current) setSessionDate(data.current);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     fetch("/api/health")
       .then((r) => r.json())
@@ -28,20 +64,45 @@ export function useSession() {
       .catch(() => setLiveAvailable(false));
   }, []);
 
-  // Live SSE — auto-switch to live when Claude posts beats
+  useEffect(() => {
+    fetch("/api/session")
+      .then((r) => r.json())
+      .then((d: { session?: Session; date?: string }) => {
+        if (d.date) setSessionDate(d.date);
+        if (d.session) {
+          applyLiveSession(
+            d.session,
+            setSource,
+            setSession,
+            setSelectedIndex,
+            true,
+          );
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        void refreshDays();
+      });
+  }, [refreshDays]);
+
   useEffect(() => {
     const es = new EventSource("/api/events");
 
     const onSession = (ev: MessageEvent) => {
       try {
         const next = JSON.parse(String(ev.data)) as Session;
-        if (next.beats.length === 0) return;
-        setSource("live");
-        setSession(next);
-        if (followLiveRef.current) {
-          setSelectedIndex(next.beats.length - 1);
+        if (
+          applyLiveSession(
+            next,
+            setSource,
+            setSession,
+            setSelectedIndex,
+            followLiveRef.current,
+          )
+        ) {
+          setPlaying(false);
+          void refreshDays();
         }
-        setPlaying(false);
       } catch {
         /* ignore */
       }
@@ -52,7 +113,7 @@ export function useSession() {
       es.removeEventListener("session", onSession);
       es.close();
     };
-  }, []);
+  }, [refreshDays]);
 
   const select = useCallback(
     (index: number) => {
@@ -93,15 +154,47 @@ export function useSession() {
     stopReplay();
     try {
       const res = await fetch("/api/session/reset", { method: "POST" });
-      const data = (await res.json()) as { session: Session };
+      const data = (await res.json()) as { session: Session; date?: string };
       setSource("live");
       setSession(data.session);
+      if (data.date) setSessionDate(data.date);
       setSelectedIndex(0);
       followLiveRef.current = true;
+      await refreshDays();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reset failed");
     }
-  }, [stopReplay]);
+  }, [refreshDays, stopReplay]);
+
+  const loadDay = useCallback(
+    async (date: string) => {
+      stopReplay();
+      try {
+        const res = await fetch(
+          `/api/session?date=${encodeURIComponent(date)}`,
+        );
+        const data = (await res.json()) as {
+          session?: Session;
+          date?: string;
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (data.date) setSessionDate(data.date);
+        if (data.session) {
+          setSource("live");
+          setSession(data.session);
+          setSelectedIndex(
+            data.session.beats.length > 0 ? data.session.beats.length - 1 : 0,
+          );
+          followLiveRef.current = true;
+        }
+        await refreshDays();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Load day failed");
+      }
+    },
+    [refreshDays, stopReplay],
+  );
 
   useEffect(() => {
     if (!playing || source !== "demo") return;
@@ -131,7 +224,8 @@ export function useSession() {
     const onKey = (e: KeyboardEvent) => {
       if (
         e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
       ) {
         return;
       }
@@ -201,6 +295,8 @@ export function useSession() {
   return {
     source,
     session,
+    sessionDate,
+    days,
     beat,
     selectedIndex,
     playing,
@@ -213,5 +309,6 @@ export function useSession() {
     rejudge,
     useDemo,
     clearLive,
+    loadDay,
   };
 }

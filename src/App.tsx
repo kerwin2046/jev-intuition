@@ -5,6 +5,8 @@ export default function App() {
   const {
     source,
     session,
+    sessionDate,
+    days,
     beat,
     selectedIndex,
     playing,
@@ -17,6 +19,7 @@ export default function App() {
     rejudge,
     useDemo,
     clearLive,
+    loadDay,
   } = useSession();
 
   return (
@@ -24,6 +27,8 @@ export default function App() {
       <Panel
         source={source}
         session={session}
+        sessionDate={sessionDate}
+        days={days}
         beat={beat}
         selectedIndex={selectedIndex}
         playing={playing}
@@ -36,6 +41,7 @@ export default function App() {
         onRejudge={rejudge}
         onUseDemo={useDemo}
         onClearLive={clearLive}
+        onLoadDay={loadDay}
       />
     </main>
   );

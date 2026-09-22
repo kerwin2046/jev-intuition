@@ -1,3 +1,5 @@
+import type { DaySummary } from "../store/useSession";
+
 type Props = {
   source: "demo" | "live";
   playing: boolean;
@@ -5,11 +7,14 @@ type Props = {
   rejudging: boolean;
   error: string | null;
   beatCount: number;
+  sessionDate: string | null;
+  days: DaySummary[];
   onReplay: () => void;
   onStop: () => void;
   onRejudge: () => void;
   onUseDemo: () => void;
   onClearLive: () => void;
+  onLoadDay: (date: string) => void;
 };
 
 export function Controls({
@@ -19,11 +24,14 @@ export function Controls({
   rejudging,
   error,
   beatCount,
+  sessionDate,
+  days,
   onReplay,
   onStop,
   onRejudge,
   onUseDemo,
   onClearLive,
+  onLoadDay,
 }: Props) {
   return (
     <div className="controls">
@@ -44,7 +52,7 @@ export function Controls({
           )
         ) : (
           <button type="button" className="btn" onClick={onClearLive}>
-            Clear live
+            Clear today
           </button>
         )}
         <button
@@ -69,9 +77,29 @@ export function Controls({
           {rejudging ? "Judging…" : "Re-judge with Jev"}
         </button>
       </div>
+
+      {days.length > 0 ? (
+        <label className="controls__day">
+          <span>Day</span>
+          <select
+            value={sessionDate ?? ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) onLoadDay(v);
+            }}
+          >
+            {days.map((d) => (
+              <option key={d.date} value={d.date}>
+                {d.date} · {d.beatCount} beat{d.beatCount === 1 ? "" : "s"}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
       <p className="controls__hint">
         {source === "live"
-          ? `Live from Claude · ${beatCount} beat${beatCount === 1 ? "" : "s"} · ↑↓ j/k`
+          ? `Live · ${sessionDate ?? "today"} · ${beatCount} beat${beatCount === 1 ? "" : "s"} · saved to disk · ↑↓ j/k`
           : liveAvailable
             ? "Demo fixture · waiting for Claude beats · ↑↓ j/k · space replay"
             : "Demo fixture · set TYPESAFE_API_KEY · ↑↓ j/k · space"}

@@ -16,6 +16,8 @@ npm run dev
 
 Open http://127.0.0.1:5173. Requires `TYPESAFE_API_KEY` for live Jev / Re-judge / auto-route.
 
+Live beats are saved under `data/sessions/YYYY-MM-DD.json` (gitignored). Restart the dashboard and today’s timeline is still there; use the Day dropdown to open older days.
+
 ## Auto-route (Claude Code)
 
 Project hooks live in [`.claude/settings.json`](.claude/settings.json). For **all** Claude sessions on this machine, the hook is also installed in `~/.claude/settings.json` pointing at `scripts/intuition-route-hook.mjs`.
