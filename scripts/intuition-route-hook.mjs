@@ -8,6 +8,7 @@
  * Env:
  *   TYPESAFE_API_KEY   required for live Jev (else skip quietly)
  *   INTUITION_URL      default http://localhost:5173
+ *   INTUITION_TOKEN    workspace token (wsk_…) for Cloud ingest
  *   INTUITION_AUTO_ROUTE=0  disable without removing the hook
  */
 
@@ -16,6 +17,7 @@ import { readFileSync } from "node:fs";
 const INTUITION_URL = (
   process.env.INTUITION_URL || "http://localhost:5173"
 ).replace(/\/$/, "");
+const INTUITION_TOKEN = process.env.INTUITION_TOKEN || "";
 const KEY = process.env.TYPESAFE_API_KEY;
 
 const ROUTE_QUESTION = {
@@ -125,9 +127,13 @@ async function main() {
   };
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (INTUITION_TOKEN) {
+      headers.Authorization = `Bearer ${INTUITION_TOKEN}`;
+    }
     await fetch(`${INTUITION_URL}/api/beats`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(beat),
       signal: AbortSignal.timeout(3000),
     });
@@ -135,8 +141,11 @@ async function main() {
     /* dashboard optional */
   }
 
+  const dash = INTUITION_TOKEN
+    ? `${INTUITION_URL}/app`
+    : INTUITION_URL;
   emitContext(
-    `[INTUITION auto-route] Jev chose ${summary}. ${hint} Dashboard: ${INTUITION_URL}`,
+    `[INTUITION auto-route] Jev chose ${summary}. ${hint} Dashboard: ${dash}`,
   );
 }
 

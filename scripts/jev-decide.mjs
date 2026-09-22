@@ -10,11 +10,13 @@
  * Env:
  *   TYPESAFE_API_KEY   required
  *   INTUITION_URL      default http://127.0.0.1:5173
+ *   INTUITION_TOKEN    workspace token (wsk_…) for Cloud ingest
  */
 
 const INTUITION_URL = (
   process.env.INTUITION_URL || "http://localhost:5173"
 ).replace(/\/$/, "");
+const INTUITION_TOKEN = process.env.INTUITION_TOKEN || "";
 const KEY = process.env.TYPESAFE_API_KEY;
 
 const PRESETS = {
@@ -99,7 +101,7 @@ async function main() {
   node scripts/jev-decide.mjs --kind route|compact|gate --intent "..." --state "..." [--acted "..."] [--title "..."]
 
 Pushes the judgment to INTUITION at ${INTUITION_URL}
-Requires TYPESAFE_API_KEY.`);
+Requires TYPESAFE_API_KEY. Set INTUITION_TOKEN for Cloud workspaces.`);
     process.exit(args.help ? 0 : 1);
   }
 
@@ -163,9 +165,13 @@ Requires TYPESAFE_API_KEY.`);
 
   let posted = false;
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (INTUITION_TOKEN) {
+      headers.Authorization = `Bearer ${INTUITION_TOKEN}`;
+    }
     const res = await fetch(`${INTUITION_URL}/api/beats`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(beat),
     });
     posted = res.ok;
@@ -187,7 +193,7 @@ Requires TYPESAFE_API_KEY.`);
     answer,
     latencyMs,
     intuition: posted ? "posted" : "not_posted",
-    dashboard: INTUITION_URL,
+    dashboard: INTUITION_TOKEN ? `${INTUITION_URL}/app` : INTUITION_URL,
   };
   console.log(JSON.stringify(out, null, 2));
 }

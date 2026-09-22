@@ -1,7 +1,7 @@
 ---
 name: intuition-bridge
 description: >
-  Push System One (Jev) decisions into the local INTUITION dashboard so the user
+  Push System One (Jev) decisions into the INTUITION Cloud dashboard so the user
   can see why a route / context / gate judgment was made. Use when the user asks
   to show intuition, visualize Jev decisions, route vs deep model, compact
   context, or gate a risky tool — or when making those judgments during a coding
@@ -11,19 +11,22 @@ description: >
 # INTUITION bridge (Claude → Jev → dashboard)
 
 When you need a fast typed judgment (route / compact / gate), do **not** invent
-probabilities. Run the local CLI; it calls Jev and posts the beat to INTUITION.
+probabilities. Run the CLI; it calls Jev and posts the beat to INTUITION Cloud.
 
 ## Prerequisites
 
-1. INTUITION dev server from the repo root: `npm run dev` (default http://127.0.0.1:5173)
+1. INTUITION running (`npm run dev` or a hosted Cloud URL)
 2. `TYPESAFE_API_KEY` in the environment
-3. User has the dashboard open in a browser
+3. `INTUITION_TOKEN` (workspace `wsk_…` from the landing page)
+4. Optional: `INTUITION_URL` (default `http://localhost:5173`)
+5. User has `/app` open in a browser (token already saved there)
 
 ## Command
 
 Resolve the repo root (directory that contains `scripts/jev-decide.mjs`), then:
 
 ```bash
+export INTUITION_TOKEN=wsk_…   # if not already set
 node scripts/jev-decide.mjs \
   --kind route|compact|gate \
   --intent "short user-facing intent" \
@@ -48,8 +51,8 @@ Stdout is JSON: `summary`, `answer`, `intuition` (`posted` | `not_posted`).
 ## After the call
 
 1. Read `summary` / `answer` and follow it in your next step (or explain if you override).
-2. Tell the user to look at INTUITION — the new beat appears on the timeline automatically.
-3. If `intuition` is `not_posted`, say the dashboard may be down; still use the Jev answer.
+2. Tell the user to look at INTUITION `/app` — the new beat appears on the timeline.
+3. If `intuition` is `not_posted`, say the dashboard may be down or the token missing; still use the Jev answer.
 
 ## Do not
 

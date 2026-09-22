@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import demoSession from "../fixtures/session-demo.json";
+import { api, getToken } from "../lib/api";
 import type { Answer, IntuitionBeat, Session } from "../types/intuition";
 
 const baseSession = demoSession as Session;
@@ -12,108 +13,93 @@ export type DaySummary = {
   beatCount: number;
 };
 
-function applyLiveSession(
-  next: Session,
-  setSource: (s: SourceMode) => void,
-  setSession: (s: Session) => void,
-  setSelectedIndex: (i: number) => void,
-  followLive: boolean,
-) {
-  if (next.beats.length === 0) return false;
-  setSource("live");
-  setSession(next);
-  setSelectedIndex(followLive ? next.beats.length - 1 : 0);
-  return true;
-}
-
-export function useSession() {
-  const [source, setSource] = useState<SourceMode>("demo");
+export function useSession(opts?: { readOnlySession?: Session; readOnlyDate?: string }) {
+  const readOnly = Boolean(opts?.readOnlySession);
+  const [source, setSource] = useState<SourceMode>(() => {
+    if (opts?.readOnlySession) return "live";
+    if (typeof window !== "undefined" && getToken()) return "live";
+    return "demo";
+  });
   const [session, setSession] = useState<Session>(() =>
-    structuredClone(baseSession),
+    opts?.readOnlySession
+      ? structuredClone(opts.readOnlySession)
+      : typeof window !== "undefined" && getToken()
+        ? { id: "live-pending", title: "Waiting for beats", beats: [] }
+        : structuredClone(baseSession),
   );
-  const [sessionDate, setSessionDate] = useState<string | null>(null);
+  const [sessionDate, setSessionDate] = useState<string | null>(
+    opts?.readOnlyDate ?? null,
+  );
   const [days, setDays] = useState<DaySummary[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState(() =>
+    opts?.readOnlySession?.beats.length
+      ? opts.readOnlySession.beats.length - 1
+      : 0,
+  );
   const [playing, setPlaying] = useState(false);
   const [liveAvailable, setLiveAvailable] = useState(false);
   const [rejudging, setRejudging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
   const followLiveRef = useRef(true);
 
   const beat: IntuitionBeat | undefined = session.beats[selectedIndex];
 
   const refreshDays = useCallback(async () => {
+    if (readOnly || !getToken()) return;
     try {
-      const res = await fetch("/api/sessions");
-      const data = (await res.json()) as {
-        current?: string;
-        sessions?: DaySummary[];
-      };
+      const data = await api<{ current?: string; sessions?: DaySummary[] }>(
+        "/api/sessions",
+      );
       setDays(data.sessions ?? []);
-      if (data.current) setSessionDate(data.current);
+      if (data.current) setSessionDate((d) => d ?? data.current!);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [readOnly]);
+
+  const pullSession = useCallback(
+    async (date?: string) => {
+      if (readOnly || !getToken()) return;
+      const q = date ? `?date=${encodeURIComponent(date)}` : "";
+      const data = await api<{ session: Session; date: string }>(
+        `/api/session${q}`,
+      );
+      setSessionDate(data.date);
+      if (data.session.beats.length > 0) {
+        setSource("live");
+        setSession(data.session);
+        if (followLiveRef.current) {
+          setSelectedIndex(data.session.beats.length - 1);
+        }
+      } else if (source === "live") {
+        setSession(data.session);
+      }
+      await refreshDays();
+    },
+    [readOnly, refreshDays, source],
+  );
 
   useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((d: { live?: boolean }) => setLiveAvailable(Boolean(d.live)))
+    api<{ live?: boolean }>("/api/health", {}, { auth: false })
+      .then((d) => setLiveAvailable(Boolean(d.live)))
       .catch(() => setLiveAvailable(false));
   }, []);
 
   useEffect(() => {
-    fetch("/api/session")
-      .then((r) => r.json())
-      .then((d: { session?: Session; date?: string }) => {
-        if (d.date) setSessionDate(d.date);
-        if (d.session) {
-          applyLiveSession(
-            d.session,
-            setSource,
-            setSession,
-            setSelectedIndex,
-            true,
-          );
-        }
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        void refreshDays();
-      });
-  }, [refreshDays]);
+    if (readOnly) return;
+    void pullSession().catch(() => undefined);
+  }, [pullSession, readOnly]);
 
+  // Poll for new beats (cloud has no SSE yet)
   useEffect(() => {
-    const es = new EventSource("/api/events");
-
-    const onSession = (ev: MessageEvent) => {
-      try {
-        const next = JSON.parse(String(ev.data)) as Session;
-        if (
-          applyLiveSession(
-            next,
-            setSource,
-            setSession,
-            setSelectedIndex,
-            followLiveRef.current,
-          )
-        ) {
-          setPlaying(false);
-          void refreshDays();
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-
-    es.addEventListener("session", onSession);
-    return () => {
-      es.removeEventListener("session", onSession);
-      es.close();
-    };
-  }, [refreshDays]);
+    if (readOnly || !getToken() || source === "demo") return;
+    const id = window.setInterval(() => {
+      void pullSession(sessionDate ?? undefined).catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [pullSession, readOnly, sessionDate, source]);
 
   const select = useCallback(
     (index: number) => {
@@ -151,10 +137,13 @@ export function useSession() {
   }, [stopReplay]);
 
   const clearLive = useCallback(async () => {
+    if (readOnly) return;
     stopReplay();
     try {
-      const res = await fetch("/api/session/reset", { method: "POST" });
-      const data = (await res.json()) as { session: Session; date?: string };
+      const data = await api<{ session: Session; date?: string }>(
+        "/api/session/reset",
+        { method: "POST" },
+      );
       setSource("live");
       setSession(data.session);
       if (data.date) setSessionDate(data.date);
@@ -164,54 +153,52 @@ export function useSession() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reset failed");
     }
-  }, [refreshDays, stopReplay]);
+  }, [readOnly, refreshDays, stopReplay]);
 
   const loadDay = useCallback(
     async (date: string) => {
+      if (readOnly) return;
       stopReplay();
       try {
-        const res = await fetch(
-          `/api/session?date=${encodeURIComponent(date)}`,
-        );
-        const data = (await res.json()) as {
-          session?: Session;
-          date?: string;
-          error?: string;
-        };
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        if (data.date) setSessionDate(data.date);
-        if (data.session) {
-          setSource("live");
-          setSession(data.session);
-          setSelectedIndex(
-            data.session.beats.length > 0 ? data.session.beats.length - 1 : 0,
-          );
-          followLiveRef.current = true;
-        }
-        await refreshDays();
+        followLiveRef.current = true;
+        await pullSession(date);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Load day failed");
       }
     },
-    [refreshDays, stopReplay],
+    [pullSession, readOnly, stopReplay],
   );
+
+  const createShare = useCallback(async () => {
+    if (readOnly || !getToken()) return;
+    try {
+      const data = await api<{ url: string }>("/api/share", {
+        method: "POST",
+        body: JSON.stringify({ date: sessionDate }),
+      });
+      setShareUrl(data.url);
+      try {
+        await navigator.clipboard.writeText(data.url);
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Share failed");
+    }
+  }, [readOnly, sessionDate]);
 
   useEffect(() => {
     if (!playing || source !== "demo") return;
-
     if (selectedIndex >= session.beats.length - 1) {
       setPlaying(false);
       return;
     }
-
     const current = session.beats[selectedIndex];
     const next = session.beats[selectedIndex + 1];
     const delay = Math.min(1800, Math.max(700, (next.t - current.t) / 3));
-
     timerRef.current = window.setTimeout(() => {
       setSelectedIndex((i) => i + 1);
     }, delay);
-
     return () => {
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
@@ -248,31 +235,24 @@ export function useSession() {
   }, [playing, select, selectedIndex, source, startReplay, stopReplay]);
 
   const rejudge = useCallback(async () => {
-    if (!beat || !liveAvailable || rejudging) return;
+    if (!beat || !liveAvailable || rejudging || readOnly) return;
     setRejudging(true);
     setError(null);
     stopReplay();
     try {
-      const res = await fetch("/api/systemone", {
+      const data = await api<{
+        answers?: Record<string, Answer>;
+        error?: string;
+      }>("/api/systemone", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "jev-latest",
           state: beat.state,
           questions: { [beat.questionKey]: beat.question },
         }),
       });
-      const data = (await res.json()) as {
-        error?: string;
-        answers?: Record<string, Answer>;
-      };
-      if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
       const nextAnswer = data.answers?.[beat.questionKey];
-      if (!nextAnswer) {
-        throw new Error("No answer returned for question key");
-      }
+      if (!nextAnswer) throw new Error("No answer returned");
       setSession((prev) => {
         const beats = prev.beats.map((b, i) =>
           i === selectedIndex
@@ -290,7 +270,14 @@ export function useSession() {
     } finally {
       setRejudging(false);
     }
-  }, [beat, liveAvailable, rejudging, selectedIndex, stopReplay]);
+  }, [
+    beat,
+    liveAvailable,
+    readOnly,
+    rejudging,
+    selectedIndex,
+    stopReplay,
+  ]);
 
   return {
     source,
@@ -303,6 +290,8 @@ export function useSession() {
     liveAvailable,
     rejudging,
     error,
+    shareUrl,
+    readOnly,
     select,
     startReplay,
     stopReplay,
@@ -310,5 +299,6 @@ export function useSession() {
     useDemo,
     clearLive,
     loadDay,
+    createShare,
   };
 }

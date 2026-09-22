@@ -1,51 +1,79 @@
 # INTUITION
 
-Local flight instruments for an agent’s System One layer — route, context compression, and tool gates.
+System One flight instruments for agents — route, context compression, and tool
+gates. Hosted Cloud spaces with shareable day links, or local Vite.
 
-- **Demo**: fixture replay (no agent needed)
-- **Live (Claude)**: beats appear when Claude (or a hook) posts Jev judgments
-- **Auto-route**: Claude Code `UserPromptSubmit` hook runs Jev route on each prompt
-
-## Run dashboard
+## Quick start (local Cloud)
 
 ```bash
 cd jev-intuition
 npm install
+export TYPESAFE_API_KEY=…   # for Re-judge / auto-route / jev-decide
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Requires `TYPESAFE_API_KEY` for live Jev / Re-judge / auto-route.
-
-Live beats are saved under `data/sessions/YYYY-MM-DD.json` (gitignored). Restart the dashboard and today’s timeline is still there; use the Day dropdown to open older days.
-
-## Auto-route (Claude Code)
-
-Project hooks live in [`.claude/settings.json`](.claude/settings.json). For **all** Claude sessions on this machine, the hook is also installed in `~/.claude/settings.json` pointing at `scripts/intuition-route-hook.mjs`.
-
-Keep the dashboard running, then start a **new** Claude Code session and send any normal prompt. A route beat should appear on INTUITION, and Claude gets a short `[INTUITION auto-route]` hint.
-
-Disable without uninstalling:
+Open http://127.0.0.1:5173 → **Create free space** → save the `wsk_…` token →
+**Open dashboard**.
 
 ```bash
-export INTUITION_AUTO_ROUTE=0
+export INTUITION_URL=http://127.0.0.1:5173
+export INTUITION_TOKEN=wsk_…
 ```
 
-## Manual decide / skill
+## Product paths
 
-Install the skill (once), from this repo root:
+| Path | What |
+| --- | --- |
+| `/` | Landing — create a workspace, copy install env |
+| `/app` | Live dashboard (token in localStorage) |
+| `/s/:id` | Read-only shared day |
 
-```bash
-mkdir -p ~/.claude/skills
-ln -sfn "$(pwd)/skills/intuition-bridge" ~/.claude/skills/intuition-bridge
-```
-
-Or call directly:
+## Ingest a beat
 
 ```bash
 node scripts/jev-decide.mjs \
   --kind route|compact|gate \
-  --intent "your intent" \
-  --state "full state for Jev"
+  --intent "…" \
+  --state "…"
 ```
 
-Env `INTUITION_URL` overrides the dashboard URL (default `http://localhost:5173`).
+Or POST JSON to `/api/beats` with `Authorization: Bearer $INTUITION_TOKEN`.
+
+## Auto-route (Claude Code)
+
+Hook: `scripts/intuition-route-hook.mjs` (see `.claude/settings.json`).
+
+```bash
+export INTUITION_URL=https://your-host
+export INTUITION_TOKEN=wsk_…
+# TYPESAFE_API_KEY required
+# INTUITION_AUTO_ROUTE=0 to disable
+```
+
+Skill: `skills/intuition-bridge` → symlink into `~/.claude/skills/`.
+
+## Production
+
+```bash
+npm run build
+PORT=8787 TYPESAFE_API_KEY=… npm start
+```
+
+Docker:
+
+```bash
+docker build -t intuition-cloud .
+docker run -p 8787:8787 -e TYPESAFE_API_KEY=… -v intuition-data:/app/data intuition-cloud
+```
+
+Data lives under `data/cloud/` (gitignored): workspaces, day sessions, share links.
+
+## API (auth: Bearer wsk_…)
+
+- `POST /api/workspaces` — create space (public; token shown once)
+- `GET /api/session?date=` — day session
+- `GET /api/sessions` — day list
+- `POST /api/beats` — ingest beat
+- `POST /api/share` — `{ date? }` → share URL
+- `GET /api/share/:id` — public read-only session
+- `POST /api/systemone` — proxy Jev (needs `TYPESAFE_API_KEY`)

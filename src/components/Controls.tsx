@@ -9,12 +9,15 @@ type Props = {
   beatCount: number;
   sessionDate: string | null;
   days: DaySummary[];
+  shareUrl: string | null;
+  readOnly?: boolean;
   onReplay: () => void;
   onStop: () => void;
   onRejudge: () => void;
   onUseDemo: () => void;
   onClearLive: () => void;
   onLoadDay: (date: string) => void;
+  onShare: () => void;
 };
 
 export function Controls({
@@ -26,17 +29,20 @@ export function Controls({
   beatCount,
   sessionDate,
   days,
+  shareUrl,
+  readOnly,
   onReplay,
   onStop,
   onRejudge,
   onUseDemo,
   onClearLive,
   onLoadDay,
+  onShare,
 }: Props) {
   return (
     <div className="controls">
       <div className="controls__actions">
-        {source === "demo" ? (
+        {readOnly ? null : source === "demo" ? (
           playing ? (
             <button type="button" className="btn" onClick={onStop}>
               Pause
@@ -55,30 +61,34 @@ export function Controls({
             Clear today
           </button>
         )}
-        <button
-          type="button"
-          className="btn"
-          onClick={onUseDemo}
-          disabled={source === "demo"}
-        >
-          Demo
-        </button>
-        <button
-          type="button"
-          className="btn"
-          onClick={onRejudge}
-          disabled={!liveAvailable || rejudging || beatCount === 0}
-          title={
-            liveAvailable
-              ? "Re-run this beat against live Jev"
-              : "Set TYPESAFE_API_KEY to enable live re-judge"
-          }
-        >
-          {rejudging ? "Judging…" : "Re-judge with Jev"}
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={onUseDemo}
+            disabled={source === "demo"}
+          >
+            Demo
+          </button>
+        ) : null}
+        {!readOnly ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={onRejudge}
+            disabled={!liveAvailable || rejudging || beatCount === 0}
+          >
+            {rejudging ? "Judging…" : "Re-judge"}
+          </button>
+        ) : null}
+        {!readOnly && source === "live" ? (
+          <button type="button" className="btn btn--primary" onClick={onShare}>
+            Share day
+          </button>
+        ) : null}
       </div>
 
-      {days.length > 0 ? (
+      {!readOnly && days.length > 0 ? (
         <label className="controls__day">
           <span>Day</span>
           <select
@@ -97,12 +107,18 @@ export function Controls({
         </label>
       ) : null}
 
+      {shareUrl ? (
+        <p className="controls__share">
+          Shared: <a href={shareUrl}>{shareUrl}</a>
+        </p>
+      ) : null}
+
       <p className="controls__hint">
-        {source === "live"
-          ? `Live · ${sessionDate ?? "today"} · ${beatCount} beat${beatCount === 1 ? "" : "s"} · saved to disk · ↑↓ j/k`
-          : liveAvailable
-            ? "Demo fixture · waiting for Claude beats · ↑↓ j/k · space replay"
-            : "Demo fixture · set TYPESAFE_API_KEY · ↑↓ j/k · space"}
+        {readOnly
+          ? `Read-only share · ${sessionDate ?? ""} · ${beatCount} beats`
+          : source === "live"
+            ? `Cloud · ${sessionDate ?? "today"} · ${beatCount} beats · ↑↓ j/k`
+            : "Demo fixture · create a space on / to ingest live beats"}
       </p>
       {error ? <p className="controls__error">{error}</p> : null}
     </div>

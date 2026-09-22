@@ -17,6 +17,8 @@ type Props = {
   liveAvailable: boolean;
   rejudging: boolean;
   error: string | null;
+  shareUrl: string | null;
+  readOnly?: boolean;
   onSelect: (index: number) => void;
   onReplay: () => void;
   onStop: () => void;
@@ -24,6 +26,7 @@ type Props = {
   onUseDemo: () => void;
   onClearLive: () => void;
   onLoadDay: (date: string) => void;
+  onShare: () => void;
 };
 
 function latestOfKind(
@@ -48,6 +51,8 @@ export function Panel({
   liveAvailable,
   rejudging,
   error,
+  shareUrl,
+  readOnly,
   onSelect,
   onReplay,
   onStop,
@@ -55,6 +60,7 @@ export function Panel({
   onUseDemo,
   onClearLive,
   onLoadDay,
+  onShare,
 }: Props) {
   const routeBeat = latestOfKind(session.beats, selectedIndex, "route");
   const compactBeat = latestOfKind(session.beats, selectedIndex, "compact");
@@ -66,9 +72,11 @@ export function Panel({
         <p className="panel__mark">INTUITION</p>
         <p className="panel__tag">
           System One ·{" "}
-          {source === "live"
-            ? `Claude live${sessionDate ? ` · ${sessionDate}` : ""}`
-            : "demo replay"}
+          {readOnly
+            ? "shared view"
+            : source === "live"
+              ? `cloud${sessionDate ? ` · ${sessionDate}` : ""}`
+              : "demo replay"}
         </p>
       </header>
 
@@ -80,18 +88,13 @@ export function Panel({
             {beat.intent}
           </p>
         ) : source === "live" ? (
-          <p className="panel__intent">
-            Waiting for Claude to push a Jev decision…
-          </p>
+          <p className="panel__intent">Waiting for agent beats…</p>
         ) : null}
       </div>
 
       <div className="panel__body">
         <div className="panel__instruments" key={beat?.id ?? "empty"}>
-          <RouteInstrument
-            beat={routeBeat}
-            active={beat?.kind === "route"}
-          />
+          <RouteInstrument beat={routeBeat} active={beat?.kind === "route"} />
           <ContextInstrument
             beat={compactBeat}
             active={beat?.kind === "compact"}
@@ -114,12 +117,15 @@ export function Panel({
             beatCount={session.beats.length}
             sessionDate={sessionDate}
             days={days}
+            shareUrl={shareUrl}
+            readOnly={readOnly}
             onReplay={onReplay}
             onStop={onStop}
             onRejudge={onRejudge}
             onUseDemo={onUseDemo}
             onClearLive={onClearLive}
             onLoadDay={onLoadDay}
+            onShare={onShare}
           />
           {beat ? (
             <p className="panel__acted" key={`acted-${beat.id}`}>

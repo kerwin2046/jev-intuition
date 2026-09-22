@@ -5,14 +5,12 @@
     "lib": ["ES2023"],
     "types": ["node"],
     "skipLibCheck": true,
-
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
-
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
@@ -20,7 +18,7 @@
   },
   "include": [
     "vite.config.ts",
-    "src/server/liveSession.ts",
+    "server/cloud/**/*.ts",
     "src/types/intuition.ts"
   ]
 }
